@@ -4,6 +4,8 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Diagnostics;
+using System.Collections.Generic;
+using System.Threading;
 
 namespace JaProj
 {
@@ -115,10 +117,9 @@ namespace JaProj
             Bitmap bitmap = new Bitmap(originalImage);
             int width = bitmap.Width;
             int height = bitmap.Height;
-            int blockSize = blurAmountTrackBar.Value;//przekazanie rozmiaru z suwaka do blocksize'a
+            int blockSize = blurAmountTrackBar.Value; // Przekazanie rozmiaru z suwaka do blockSize
 
             BitmapData data = null;
-
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
@@ -141,13 +142,38 @@ namespace JaProj
                 {
                     Marshal.Copy(buffer, 0, sourceBuffer, bytes);
 
-                    if (librarySelector.SelectedItem.ToString() == "ASM Library")
+                    int threadCount = threadCountTrackBar.Value; // Liczba wątków
+                    int rowsPerThread = height / threadCount; // Rozdzielenie wysokości obrazu na wątki
+
+                    List<Thread> threads = new List<Thread>();
+                    for (int i = 0; i < threadCount; i++)
                     {
-                        GaussianBlurASM.ApplyBlur(sourceBuffer, destinationBuffer, height, width, 0, width * height * 3, blockSize);
+                        int startRow = i * rowsPerThread;
+                        int endRow = (i == threadCount - 1) ? height : (i + 1) * rowsPerThread; // Ostatni wątek zajmuje resztę obrazu
+
+                        // Tworzenie nowego wątku, który wykona rozmycie Gaussa na danym fragmencie obrazu
+                        int startIndex = startRow * width * 3;
+                        int endIndex = endRow * width * 3;
+                        Thread thread = new Thread(() =>
+                        {
+                            if (librarySelector.SelectedItem.ToString() == "ASM Library")
+                            {
+                                GaussianBlurASM.ApplyBlur(sourceBuffer, destinationBuffer, height, width, startIndex, endIndex, blockSize);
+                            }
+                            else
+                            {
+                                GaussianBlur(sourceBuffer, destinationBuffer, height, width, startIndex, endIndex, blockSize);
+                            }
+                        });
+
+                        threads.Add(thread);
+                        thread.Start();
                     }
-                    else
+
+                    // Czekanie na zakończenie wszystkich wątków
+                    foreach (Thread thread in threads)
                     {
-                        GaussianBlur(sourceBuffer, destinationBuffer, height, width, 0, width * height * 3, blockSize);
+                        thread.Join();
                     }
 
                     Marshal.Copy(destinationBuffer, resultBuffer, 0, bytes);
@@ -171,9 +197,9 @@ namespace JaProj
                 blurredImageBox.Image.Dispose();
             blurredImageBox.Image = bitmap;
 
-            MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds}ms",
-                "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds}ms", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
+
 
         private void ThreadCountTrackBar_Scroll(object sender, EventArgs e)
         {

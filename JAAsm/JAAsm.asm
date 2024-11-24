@@ -1,26 +1,73 @@
 .data
 ALIGN 16
-    gaussian_kernel DD 256 DUP(0)  ; Space for Gaussian kernel
-    kernel_size DD 0              ; Current kernel size
-    two_pi DQ 3.14159265358979323846
-    e_const DQ 2.71828182845904523536
-    zero DQ 0.0
-    one DQ 1.0
-    two DQ 2.0
+    gaussian_kernel DD 256 DUP(0)  ; Space for Gaussian kernel (must be initialized)
+    kernel_size DD 0               ; Current kernel size
+    thread_count DD 1              ; Number of threads to use
+    chunk_size DD 0                ; Size of chunk for each thread
+    temp_buffer DD 1024 DUP(0)     ; Temporary buffer for convolution
 
 .code
+
+; Function to initialize Gaussian kernel
+InitGaussianKernel PROC
+    ; RCX - Radius
+    ; Preserves all registers except RAX
+    push rbx
+    push rcx
+    push rdx
+    
+    ; Calculate kernel size (2*radius + 1)
+    mov eax, ecx
+    add eax, eax
+    inc eax
+    mov [kernel_size], eax
+    
+    ; TODO: Add actual Gaussian kernel calculation here
+    ; This should populate gaussian_kernel with proper weights
+    ; Sum of weights should equal 1.0 when represented as fixed point
+    
+    pop rdx
+    pop rcx
+    pop rbx
+    ret
+InitGaussianKernel ENDP
+
+; Macro to process a single pixel with proper bounds checking
+process_pixel_sse MACRO
+    LOCAL skip_pixel
+    
+    ; Check bounds
+    cmp rcx, 0
+    jl skip_pixel
+    cmp rcx, r13
+    jge skip_pixel
+    
+    ; Load pixel data (RGB)
+    movzx eax, BYTE PTR [rsi + rcx*3]      ; R
+    movzx ebx, BYTE PTR [rsi + rcx*3 + 1]  ; G
+    movzx edx, BYTE PTR [rsi + rcx*3 + 2]  ; B
+    
+    ; Convert to packed words
+    pinsrw xmm1, eax, 0                    ; Insert R
+    pinsrw xmm2, ebx, 0                    ; Insert G
+    pinsrw xmm3, edx, 0                    ; Insert B
+    
+skip_pixel:
+ENDM
+
 ProcessImage PROC
     ; RCX - Input buffer pointer
     ; RDX - Output buffer pointer
-    ; R8D - Width
-    ; R9D - Height
-    ; [RSP+40] - Blur radius
-
+    ; R8 - Height
+    ; R9 - Width
+    ; [RSP+40] - Thread count
+    ; [RSP+48] - Blur radius
+    
     push rbp
     mov rbp, rsp
     sub rsp, 80h
-
-    ; Save registers
+    
+    ; Save non-volatile registers
     push rbx
     push rsi
     push rdi
@@ -28,134 +75,96 @@ ProcessImage PROC
     push r13
     push r14
     push r15
-
+    
     ; Store parameters
     mov rsi, rcx                    ; Input buffer
     mov rdi, rdx                    ; Output buffer
-    mov r12d, r8d                   ; Width
-    mov r13d, r9d                   ; Height
-    mov r14d, DWORD PTR [rbp+40h]   ; Blur radius
-
-    ; Calculate kernel size
-    xor eax, eax                    ; Clear EAX
-    mov eax, r14d                   ; Move radius to EAX
-    add eax, eax                    ; Multiply by 2
-    inc eax                         ; Add 1
-    mov DWORD PTR [kernel_size], eax ; Store kernel size
-
-    ; Process pixels
-    xor r8d, r8d                    ; Y counter = 0
-
-process_rows:
-    xor r9d, r9d                    ; X counter = 0
-
-process_columns:
-    ; Calculate pixel offset (y * width + x) * 4
-    mov eax, r8d
-    mul r12d                        ; EAX = y * width
-    add eax, r9d                    ; Add x
-    shl eax, 2                      ; Multiply by 4 (RGBA)
-    mov r10d, eax                   ; Store offset
-
-    ; Clear accumulators
-    xorps xmm4, xmm4                ; Clear blue accumulator
-    xorps xmm5, xmm5                ; Clear green accumulator
-    xorps xmm6, xmm6                ; Clear red accumulator
-    xorps xmm7, xmm7                ; Clear alpha accumulator
-
-    ; Process kernel area
-    mov r15d, r14d                  ; Kernel radius
-    neg r15d                        ; Start from -radius
-
-kernel_y:
-    mov ebx, r14d
-    neg ebx                         ; Start from -radius
-
-kernel_x:
-    ; Calculate source coordinates
-    mov eax, r8d
-    add eax, r15d                   ; Source Y = y + ky
-    mov ecx, r9d
-    add ecx, ebx                    ; Source X = x + kx
-
-    ; Check boundaries
-    test eax, eax
-    js next_kernel                  ; Skip if Y < 0
-    cmp eax, r13d
-    jge next_kernel                 ; Skip if Y >= height
-    test ecx, ecx
-    js next_kernel                  ; Skip if X < 0
-    cmp ecx, r12d
-    jge next_kernel                 ; Skip if X >= width
-
-    ; Calculate source offset
-    push rax                        ; Save RAX
-    mul r12d                        ; Y * width
-    add eax, ecx                    ; Add X
-    shl eax, 2                      ; Multiply by 4
-    mov ecx, eax                    ; Store offset in ECX
-    pop rax                         ; Restore RAX
-
-    ; Load pixel colors
-    movzx edx, BYTE PTR [rsi+rcx]   ; Blue
-    cvtsi2ss xmm0, edx
-    addss xmm4, xmm0
-
-    movzx edx, BYTE PTR [rsi+rcx+1] ; Green
-    cvtsi2ss xmm0, edx
-    addss xmm5, xmm0
-
-    movzx edx, BYTE PTR [rsi+rcx+2] ; Red
-    cvtsi2ss xmm0, edx
-    addss xmm6, xmm0
-
-    movzx edx, BYTE PTR [rsi+rcx+3] ; Alpha
-    cvtsi2ss xmm0, edx
-    addss xmm7, xmm0
-
-next_kernel:
-    inc ebx
-    cmp ebx, r14d
-    jle kernel_x
-
-    inc r15d
-    cmp r15d, r14d
-    jle kernel_y
-
-    ; Calculate averages
-    mov eax, DWORD PTR [kernel_size]
-    mul eax                         ; Total pixels = kernel_size^2
-    cvtsi2ss xmm0, eax
+    mov r12, r8                     ; Height
+    mov r13, r9                     ; Width
+    mov eax, DWORD PTR [rbp+40h]   ; Thread count
+    mov DWORD PTR [thread_count], eax
+    mov r14d, DWORD PTR [rbp+48h]  ; Blur radius
     
-    ; Divide accumulated values by total pixels
-    divss xmm4, xmm0               ; Blue
-    divss xmm5, xmm0               ; Green
-    divss xmm6, xmm0               ; Red
-    divss xmm7, xmm0               ; Alpha
+    ; Initialize Gaussian kernel
+    mov rcx, r14                    ; Pass radius to kernel init
+    call InitGaussianKernel
+    
+    ; Calculate chunk size for each thread
+    mov eax, r12d                   ; Height
+    mul r13d                        ; Total pixels = height * width
+    mov ebx, DWORD PTR [thread_count]
+    div ebx                         ; Pixels per thread
+    mov DWORD PTR [chunk_size], eax
+    
+    ; Initialize SSE
+    pxor xmm7, xmm7                ; Zero XMM7 for accumulator
+    
+    ; Process chunks in parallel
+    xor r15, r15                   ; Thread counter
+    
+thread_loop:
+    ; Calculate chunk boundaries
+    mov eax, DWORD PTR [chunk_size]
+    mul r15d                       ; Start offset = chunk_size * thread_number
+    mov r8d, eax                   ; R8D = start offset
+    
+    add eax, DWORD PTR [chunk_size]
+    mov r9d, eax                   ; R9D = end offset
+    
+    ; Process each pixel in chunk
+    mov rcx, r8                    ; Current pixel index
+    
+pixel_loop:
+    ; Clear accumulators
+    pxor xmm1, xmm1                ; R accumulator
+    pxor xmm2, xmm2                ; G accumulator
+    pxor xmm3, xmm3                ; B accumulator
+    
+    ; Apply kernel to neighborhood
+    mov rbx, r14                   ; Kernel radius
+    neg rbx                        ; Start from -radius
+    
+kernel_loop:
+    ; Calculate neighbor pixel position
+    mov rax, rcx
+    add rax, rbx                   ; Add kernel offset
+    
+    ; Process pixel with bounds checking
+mov eax, [rbx + rdx*4] ; Poprawiona skala
 
+    
+    inc rbx
+    cmp rbx, r14                   ; Compare with radius
+    jle kernel_loop
+    
+    ; Normalize and store result
+    ; Convert accumulated fixed-point values back to bytes
+    packuswb xmm1, xmm1            ; Pack R values
+    packuswb xmm2, xmm2            ; Pack G values
+    packuswb xmm3, xmm3            ; Pack B values
+    
     ; Store processed pixel
-    cvttss2si eax, xmm4
-    mov BYTE PTR [rdi+r10], al      ; Blue
+mov eax, [rbx + rdx*4] ; Poprawiona skala
 
-    cvttss2si eax, xmm5
-    mov BYTE PTR [rdi+r10+1], al    ; Green
+mov eax, [rbx + rdx*4] ; Poprawiona skala
+mov eax, [rbx + rdx*4] ; Poprawiona skala
+mov eax, [rbx + rdx*4] ; Poprawiona skala
 
-    cvttss2si eax, xmm6
-    mov BYTE PTR [rdi+r10+2], al    ; Red
+mov eax, [rbx + rdx*4] ; Poprawiona skala
 
-    cvttss2si eax, xmm7
-    mov BYTE PTR [rdi+r10+3], al    ; Alpha
+mov eax, [rbx + rdx*4] ; Poprawiona skala
 
-    ; Next pixel
-    inc r9d
-    cmp r9d, r12d
-    jl process_columns
-
-    ; Next row
-    inc r8d
-    cmp r8d, r13d
-    jl process_rows
-
+    
+    ; Move to next pixel
+    inc rcx
+    cmp rcx, r9
+    jl pixel_loop
+    
+    ; Next thread
+    inc r15d
+    cmp r15d, DWORD PTR [thread_count]
+    jl thread_loop
+    
     ; Restore registers
     pop r15
     pop r14
@@ -164,11 +173,10 @@ next_kernel:
     pop rdi
     pop rsi
     pop rbx
-
+    
     mov rsp, rbp
     pop rbp
     ret
-
 ProcessImage ENDP
 
 END
