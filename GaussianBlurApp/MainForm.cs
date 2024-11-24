@@ -11,7 +11,7 @@ namespace JaProj
     {
         private Image originalImage;
 
-        [DllImport(@"C:\Users\Gamer\source\repos\JaProjJR\x64\Debug\Blur.dll",
+        [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\Blur.dll",
             CallingConvention = CallingConvention.StdCall,
             CharSet = CharSet.Auto)]
         private static extern void GaussianBlur(
@@ -201,7 +201,7 @@ namespace JaProj
 
     public class GaussianBlurASM
     {
-        [DllImport(@"C:\Users\Gamer\source\repos\JaProjJR\x64\Debug\JAAsm.dll",
+        [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\JAAsm.dll",
             CallingConvention = CallingConvention.Cdecl)]
         public static extern void ProcessImage(IntPtr InBuffer, IntPtr OutBuffer,
             int height, int width, int start, int endIndex, int blockSize);
