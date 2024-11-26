@@ -1,182 +1,185 @@
-.data
-ALIGN 16
-    gaussian_kernel DD 256 DUP(0)  ; Space for Gaussian kernel (must be initialized)
-    kernel_size DD 0               ; Current kernel size
-    thread_count DD 1              ; Number of threads to use
-    chunk_size DD 0                ; Size of chunk for each thread
-    temp_buffer DD 1024 DUP(0)     ; Temporary buffer for convolution
-
 .code
 
-; Function to initialize Gaussian kernel
-InitGaussianKernel PROC
-    ; RCX - Radius
-    ; Preserves all registers except RAX
-    push rbx
-    push rcx
-    push rdx
-    
-    ; Calculate kernel size (2*radius + 1)
-    mov eax, ecx
-    add eax, eax
-    inc eax
-    mov [kernel_size], eax
-    
-    ; TODO: Add actual Gaussian kernel calculation here
-    ; This should populate gaussian_kernel with proper weights
-    ; Sum of weights should equal 1.0 when represented as fixed point
-    
-    pop rdx
-    pop rcx
-    pop rbx
-    ret
-InitGaussianKernel ENDP
+; Bufor z pikselami, prerabiana czeœæ, wysokoœæ, szerokoœæ, start, koniec
+ProcessImage proc pixelBuffer: QWORD, part: QWORD, higth: SDWORD, wid: SDWORD, start: SDWORD, endIndex: SDWORD
 
-; Macro to process a single pixel with proper bounds checking
-process_pixel_sse MACRO
-    LOCAL skip_pixel
-    
-    ; Check bounds
-    cmp rcx, 0
-    jl skip_pixel
-    cmp rcx, r13
-    jge skip_pixel
-    
-    ; Load pixel data (RGB)
-    movzx eax, BYTE PTR [rsi + rcx*3]      ; R
-    movzx ebx, BYTE PTR [rsi + rcx*3 + 1]  ; G
-    movzx edx, BYTE PTR [rsi + rcx*3 + 2]  ; B
-    
-    ; Convert to packed words
-    pinsrw xmm1, eax, 0                    ; Insert R
-    pinsrw xmm2, ebx, 0                    ; Insert G
-    pinsrw xmm3, edx, 0                    ; Insert B
-    
-skip_pixel:
-ENDM
+	; Odtwórz rejestr
+	push rbx
+	push rcx
+	push rdx
+	push rbp
 
-ProcessImage PROC
-    ; RCX - Input buffer pointer
-    ; RDX - Output buffer pointer
-    ; R8 - Height
-    ; R9 - Width
-    ; [RSP+40] - Thread count
-    ; [RSP+48] - Blur radius
-    
-    push rbp
-    mov rbp, rsp
-    sub rsp, 80h
-    
-    ; Save non-volatile registers
-    push rbx
-    push rsi
-    push rdi
-    push r12
-    push r13
-    push r14
-    push r15
-    
-    ; Store parameters
-    mov rsi, rcx                    ; Input buffer
-    mov rdi, rdx                    ; Output buffer
-    mov r12, r8                     ; Height
-    mov r13, r9                     ; Width
-    mov eax, DWORD PTR [rbp+40h]   ; Thread count
-    mov DWORD PTR [thread_count], eax
-    mov r14d, DWORD PTR [rbp+48h]  ; Blur radius
-    
-    ; Initialize Gaussian kernel
-    mov rcx, r14                    ; Pass radius to kernel init
-    call InitGaussianKernel
-    
-    ; Calculate chunk size for each thread
-    mov eax, r12d                   ; Height
-    mul r13d                        ; Total pixels = height * width
-    mov ebx, DWORD PTR [thread_count]
-    div ebx                         ; Pixels per thread
-    mov DWORD PTR [chunk_size], eax
-    
-    ; Initialize SSE
-    pxor xmm7, xmm7                ; Zero XMM7 for accumulator
-    
-    ; Process chunks in parallel
-    xor r15, r15                   ; Thread counter
-    
-thread_loop:
-    ; Calculate chunk boundaries
-    mov eax, DWORD PTR [chunk_size]
-    mul r15d                       ; Start offset = chunk_size * thread_number
-    mov r8d, eax                   ; R8D = start offset
-    
-    add eax, DWORD PTR [chunk_size]
-    mov r9d, eax                   ; R9D = end offset
-    
-    ; Process each pixel in chunk
-    mov rcx, r8                    ; Current pixel index
-    
-pixel_loop:
-    ; Clear accumulators
-    pxor xmm1, xmm1                ; R accumulator
-    pxor xmm2, xmm2                ; G accumulator
-    pxor xmm3, xmm3                ; B accumulator
-    
-    ; Apply kernel to neighborhood
-    mov rbx, r14                   ; Kernel radius
-    neg rbx                        ; Start from -radius
-    
-kernel_loop:
-    ; Calculate neighbor pixel position
-    mov rax, rcx
-    add rax, rbx                   ; Add kernel offset
-    
-    ; Process pixel with bounds checking
-mov eax, [rbx + rdx*4] ; Poprawiona skala
+	; Pocz¹tek jest iteratorem w rejestrze rsi
+	mov eax, start
+	mov rsi, rax
 
-    
-    inc rbx
-    cmp rbx, r14                   ; Compare with radius
-    jle kernel_loop
-    
-    ; Normalize and store result
-    ; Convert accumulated fixed-point values back to bytes
-    packuswb xmm1, xmm1            ; Pack R values
-    packuswb xmm2, xmm2            ; Pack G values
-    packuswb xmm3, xmm3            ; Pack B values
-    
-    ; Store processed pixel
-mov eax, [rbx + rdx*4] ; Poprawiona skala
+	; Wysokoœæ w rejestrze r12 
+	mov r12, r8
 
-mov eax, [rbx + rdx*4] ; Poprawiona skala
-mov eax, [rbx + rdx*4] ; Poprawiona skala
-mov eax, [rbx + rdx*4] ; Poprawiona skala
+	; Width * hight * 3 w r12
+	imul r12, r9
+	imul r12, 3
 
-mov eax, [rbx + rdx*4] ; Poprawiona skala
+	; Width * 3 - 3 w r9
+	imul r9, 3
+	sub r9, 3
 
-mov eax, [rbx + rdx*4] ; Poprawiona skala
+	; Width * 3 + 3 w rdi
+	mov rdi, r9
+	add rdi, 6
 
-    
-    ; Move to next pixel
-    inc rcx
-    cmp rcx, r9
-    jl pixel_loop
-    
-    ; Next thread
-    inc r15d
-    cmp r15d, DWORD PTR [thread_count]
-    jl thread_loop
-    
-    ; Restore registers
-    pop r15
-    pop r14
-    pop r13
-    pop r12
-    pop rdi
-    pop rsi
-    pop rbx
-    
-    mov rsp, rbp
-    pop rbp
-    ret
-ProcessImage ENDP
+	; Indeks dla bufora w rejestrze r14
+	xor r14, r14
+	mov eax, endIndex
+	sub eax, start
+	mov r14, rax
 
-END
+	; SprawdŸ czy jest to ostatni w¹tek
+	mov eax, endIndex
+	cmp rax, r12
+	je LastThread
+	add r14, rdi
+	LastThread:
+	sub r14, rdi
+
+	; Indeks dla obliczanej czêœci w r13
+	xor r13, r13
+
+	; Dzielnik
+	mov r15, 8
+	movd xmm10, r15
+
+	; Dzielna
+	mov r15, 1
+	movd xmm9, r15
+
+	; Konwersja na zmiennoprzecinkowe
+	vcvtdq2ps xmm10, xmm10
+	; Konwersja na zmiennoprzecionkowe
+	vcvtdq2ps xmm9, xmm9
+
+	; Podzielic przez 8 oznacza pomnozyc przez 0.125
+	divss xmm9, xmm10
+	; Ustaw 0.125 na wszystkich miejscach
+	shufps xmm9, xmm9, 0
+
+	; SprawdŸ czy jest to pierwszy w¹tek
+	mov rax, 0
+	cmp rax, rsi
+	jne NotFirstThread
+	add rsi, r9
+	NotFirstThread:
+
+	ForLoop:
+		
+		; SprawdŸ czy indeks nowej bitmapy jest mniejszy od konca
+		cmp r13, r14
+		jge ProgramOver
+
+		; Przesuñ wskaŸnik
+		mov rbx, rsi
+		sub rbx, r9
+
+		; 1 zestaw pikseli
+		; Indeks i - width * 3 - 3
+		pmovzxbd xmm0, [rcx + rbx - 6]
+		; Rozkaz pmovzxbd (SSE4_1):
+		; Przenosi 4 16-bitowe wartoœci z bufora do xmm 
+
+		; 2 zestaw pikseli
+		; Indeks i - width * 3
+		pmovzxbd xmm2, [rcx + rbx - 3]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2 
+		; Rozkaz paddd
+		; Dodawanie wartoœci dwóch wektorów
+		; Np: xmm0: 321 123 321 100
+		;	  xmm1: 111 111 111 111
+		;     --------------------- paddd xmm0, xmm1
+		;     xmm0: 432 234 432 211
+
+		; 3 zestaw pikseli
+		; Indeks i - width * 3 + 3
+		pmovzxbd xmm2, [rcx + rbx]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2 
+		; 4 zestaw pikseli
+		; Indeks i - 3
+		pmovzxbd xmm2, [rcx + rsi - 3]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2
+		; 5 zestaw pikseli
+		; Indeks i + 3
+		pmovzxbd xmm2, [rcx + rsi + 3]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2
+		; Przesuñ wskaŸnik
+		mov rbx, rsi
+		add rbx, r9
+		; 6 zestaw pikseli
+		; Indeks i + width * 3 - 3
+		pmovzxbd xmm2, [rcx + rbx - 3]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2
+		; 7 zestaw pikseli
+		; Indeks i + width * 3
+		pmovzxbd xmm2, [rcx + rbx]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2
+		; 8 zestaw pikseli
+		; Indeks i + width * 3 + 3
+		pmovzxbd xmm2, [rcx + rbx + 3]
+		; Sumuj wartoœci
+		paddd xmm0, xmm2 
+		
+		; Pomnó¿ wektor przez 0.125
+		mulps xmm0, xmm9
+
+		; Konwersja na zmiennoprzecinkowe
+		vcvtdq2ps xmm1, xmm0
+		; Zapisz wynik w rax
+		vcvtss2si eax, xmm1
+		
+		; Rozkaz vcvtss2si (AVX)
+		; Przemieœæ najmniej znacz¹cy element zmiennoprzecinowy z xmm0,
+		; konwertuj¹c go na 32bitowy integer (dlatego eax a nie rax)
+		; Zapisz obliczony piksel w nowej bitmapie
+		mov byte ptr [rdx + r13], al
+		; Inkrementuj indeks nowej bitmapy
+		inc r13
+		; Przesuñ
+		shufps xmm0, xmm0, 39h
+		; Rozkaz shufps (SSE)
+		; Rozkaz przesuwa dane w wektorze w zale¿noœci od flagi kontolnej
+		; 39h - przesuñ w prawo
+		; Konwersja na zmiennoprzecinkowe
+		vcvtdq2ps xmm1, xmm0
+		; Przeœlij do eax
+		vcvtss2si eax, xmm1
+		; Zapisz w nowej bitmapie
+		mov byte ptr [rdx + r13], al
+		; Inkrementuj indeks
+		inc r13
+		; Przesuñ
+		shufps xmm0, xmm0, 39h
+		; Konwersja na zmiennoprzecinkowe
+		vcvtdq2ps xmm1, xmm0
+		; Przeœlij do eax
+		vcvtss2si eax, xmm1
+		; Zapisz w nowej bitmapie
+		mov byte ptr [rdx + r13], al
+		; Inkrementuj indeks
+		inc r13
+		
+		add rsi, 3
+		jmp ForLoop
+
+ProgramOver:
+	pop rbp
+	pop rdx
+	pop rcx
+	pop rbx
+
+	ret
+	ProcessImage endp
+    end

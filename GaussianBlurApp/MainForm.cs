@@ -6,6 +6,7 @@ using System.Windows.Forms;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace JaProj
 {
@@ -24,7 +25,6 @@ namespace JaProj
             int start,
             int end,
             int blockSize);
-
 
         public MainForm()
         {
@@ -62,9 +62,8 @@ namespace JaProj
                 {
                     try
                     {
-                        // Załaduj obraz w formacie JPG/PNG
                         originalImage = Image.FromFile(FileText.FileName);
-                        originalImageBox.Image = new Bitmap(originalImage); // Wyświetlenie go w kwadraciku
+                        originalImageBox.Image = new Bitmap(originalImage);
                         applyBlurButton.Enabled = true;
                     }
                     catch (Exception ex)
@@ -97,7 +96,7 @@ namespace JaProj
 
             try
             {
-                ProcessImage(); // Przetwarzanie obrazu
+                ProcessImage();
             }
             catch (Exception ex)
             {
@@ -113,11 +112,23 @@ namespace JaProj
 
         private void ProcessImage()
         {
-            // Skonwertuj obraz na format 24bppRGB
+            // Bezpieczne pobranie wartości z głównego wątku interfejsu użytkownika
+            bool useAsmLibrary = false;
+            int threadCount = 1;
+            int blockSize = 1;
+
+            this.Invoke((MethodInvoker)delegate
+            {
+                useAsmLibrary = librarySelector.SelectedItem?.ToString() == "ASM Library";
+                threadCount = threadCountTrackBar.Value;
+                blockSize = blurAmountTrackBar.Value;
+            });
+
             Bitmap bitmap = new Bitmap(originalImage);
             int width = bitmap.Width;
             int height = bitmap.Height;
-            int blockSize = blurAmountTrackBar.Value; // Przekazanie rozmiaru z suwaka do blockSize
+
+            Console.WriteLine($"Image dimensions: {width}x{height}, Block size: {blockSize}, Threads: {threadCount}");
 
             BitmapData data = null;
             Stopwatch stopwatch = new Stopwatch();
@@ -125,11 +136,12 @@ namespace JaProj
 
             try
             {
-                // Pobierz bajty z obrazu
                 Rectangle rect = new Rectangle(0, 0, width, height);
                 data = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
 
-                int bytes = Math.Abs(data.Stride) * height;
+                int stride = data.Stride;
+                int bytes = Math.Abs(stride) * height;
+
                 byte[] buffer = new byte[bytes];
                 byte[] resultBuffer = new byte[bytes];
 
@@ -141,40 +153,50 @@ namespace JaProj
                 try
                 {
                     Marshal.Copy(buffer, 0, sourceBuffer, bytes);
+                    Marshal.Copy(buffer, 0, destinationBuffer, bytes);
 
-                    int threadCount = threadCountTrackBar.Value; // Liczba wątków
-                    int rowsPerThread = height / threadCount; // Rozdzielenie wysokości obrazu na wątki
-
-                    List<Thread> threads = new List<Thread>();
-                    for (int i = 0; i < threadCount; i++)
+                    // Podział pracy na wątki
+                    Parallel.For(0, threadCount, threadIndex =>
                     {
-                        int startRow = i * rowsPerThread;
-                        int endRow = (i == threadCount - 1) ? height : (i + 1) * rowsPerThread; // Ostatni wątek zajmuje resztę obrazu
+                        int rowsPerThread = height / threadCount;
+                        int startRow = threadIndex * rowsPerThread;
+                        int endRow = (threadIndex == threadCount - 1) ? height : (threadIndex + 1) * rowsPerThread;
 
-                        // Tworzenie nowego wątku, który wykona rozmycie Gaussa na danym fragmencie obrazu
-                        int startIndex = startRow * width * 3;
-                        int endIndex = endRow * width * 3;
-                        Thread thread = new Thread(() =>
+                        int startIndex = startRow * stride;
+                        int endIndex = endRow * stride;
+
+                        try
                         {
-                            if (librarySelector.SelectedItem.ToString() == "ASM Library")
+                            if (useAsmLibrary)
                             {
-                                GaussianBlurASM.ApplyBlur(sourceBuffer, destinationBuffer, height, width, startIndex, endIndex, blockSize);
+                                GaussianBlurASM.ApplyBlurThreaded(
+                                    sourceBuffer,
+                                    destinationBuffer,
+                                    width,
+                                    height,
+                                    startIndex,
+                                    endIndex,
+                                    blockSize  // Dodaj ten parametr
+                                );
                             }
                             else
                             {
-                                GaussianBlur(sourceBuffer, destinationBuffer, height, width, startIndex, endIndex, blockSize);
+                                GaussianBlur(
+                                    sourceBuffer,
+                                    destinationBuffer,
+                                    height,
+                                    width,
+                                    startIndex,
+                                    endIndex,
+                                    blockSize
+                                );
                             }
-                        });
-
-                        threads.Add(thread);
-                        thread.Start();
-                    }
-
-                    // Czekanie na zakończenie wszystkich wątków
-                    foreach (Thread thread in threads)
-                    {
-                        thread.Join();
-                    }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error in thread {threadIndex}: {ex.Message}");
+                        }
+                    });
 
                     Marshal.Copy(destinationBuffer, resultBuffer, 0, bytes);
                     Marshal.Copy(resultBuffer, 0, data.Scan0, bytes);
@@ -193,13 +215,17 @@ namespace JaProj
 
             stopwatch.Stop();
 
-            if (blurredImageBox.Image != null)
-                blurredImageBox.Image.Dispose();
-            blurredImageBox.Image = bitmap;
+            // Użyj BeginInvoke, aby nie blokować wątku
+            this.BeginInvoke((MethodInvoker)delegate
+            {
+                if (blurredImageBox.Image != null)
+                    blurredImageBox.Image.Dispose();
+                blurredImageBox.Image = bitmap;
 
-            MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds}ms", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds}ms",
+                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
         }
-
 
         private void ThreadCountTrackBar_Scroll(object sender, EventArgs e)
         {
@@ -215,7 +241,6 @@ namespace JaProj
         {
             base.OnFormClosing(e);
 
-            // Czyszczenie zasobów
             if (originalImage != null)
                 originalImage.Dispose();
             if (originalImageBox.Image != null)
@@ -225,17 +250,23 @@ namespace JaProj
         }
     }
 
-    public class GaussianBlurASM
+        public class GaussianBlurASM
     {
         [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\JAAsm.dll",
-            CallingConvention = CallingConvention.Cdecl)]
-        public static extern void ProcessImage(IntPtr InBuffer, IntPtr OutBuffer,
-            int height, int width, int start, int endIndex, int blockSize);
+                   CallingConvention = CallingConvention.Cdecl)]
+        public static extern void ApplyBlurThreaded(
+            IntPtr inputBuffer,
+            IntPtr outputBuffer,
+            int width,
+            int height,
+            int startIndex,
+            int endIndex,
+            int blockSize
+        );
 
-        public static void ApplyBlur(IntPtr InBuffer, IntPtr OutBuffer,
-            int height, int width, int start, int endIndex, int blockSize)
-        {
-            ProcessImage(InBuffer, OutBuffer, height, width, start, endIndex, blockSize);
-        }
+        // Stałe dla operacji SIMD
+        public const int BytesPerPixel = 3;      // Format RGB
+        public const int SIMDAlignment = 64;     // Wyrównanie dla operacji SIMD
+        public const int PixelsPerBlock = 8;     // Liczba pikseli przetwarzanych w jednym bloku SIMD
     }
 }

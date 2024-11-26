@@ -1,4 +1,6 @@
 ﻿#include "pch.h"
+#include <algorithm>
+#include <cmath>
 
 #ifdef Blur_EXPORTS
 #define Blur_API __declspec(dllexport)
@@ -26,40 +28,48 @@ void __stdcall GaussianBlur(
     int end,
     int blockSize)
 {
-    int index = start;  // Zacznij od indeksu startowego
+    const int BytesPerPixel = 3;  // RGB
 
-    for (int y = start / (width * 3); y < end / (width * 3); ++y) {
-        for (int x = (start / 3) % width; x < width; ++x) {
+    // Oblicz rzeczywiste granice przetwarzania
+    int startY = start / (width * BytesPerPixel);
+    int endY = end / (width * BytesPerPixel);
 
-            if (x >= blockSize / 2 && x < width - blockSize / 2 &&
-                y >= blockSize / 2 && y < height - blockSize / 2) {
+    // Zabezpieczenie przed wyjściem poza granice
+    startY = std::max(0, startY);
+    endY = std::min(height, endY);
 
-                double sumR = 0, sumG = 0, sumB = 0;
-                int count = 0;
+    for (int y = startY; y < endY; ++y) {
+        for (int x = 0; x < width; ++x) {
+            // Jeśli piksel jest blisko krawędzi, kopiuj bez rozmycia
+            if (x < blockSize / 2 || x >= width - blockSize / 2 ||
+                y < blockSize / 2 || y >= height - blockSize / 2) {
 
-                // Obliczanie średniej z sąsiednich pikseli w oknie rozmycia
-                for (int dy = -blockSize / 2; dy <= blockSize / 2; dy++) {
-                    for (int dx = -blockSize / 2; dx <= blockSize / 2; dx++) {
-                        int pos = ((y + dy) * width + (x + dx)) * 3;
-                        sumB += InBuffer[pos];
-                        sumG += InBuffer[pos + 1];
-                        sumR += InBuffer[pos + 2];
-                        count++;
-                    }
-                }
-
-                int pixelPos = (y * width + x) * 3;
-                OutBuffer[pixelPos] = static_cast<unsigned char>(sumB / count);
-                OutBuffer[pixelPos + 1] = static_cast<unsigned char>(sumG / count);
-                OutBuffer[pixelPos + 2] = static_cast<unsigned char>(sumR / count);
-            }
-            else {
-                // Kopiowanie pikseli, jeśli znajdują się na krawędzi
-                int pixelPos = (y * width + x) * 3;
+                int pixelPos = (y * width + x) * BytesPerPixel;
                 OutBuffer[pixelPos] = InBuffer[pixelPos];
                 OutBuffer[pixelPos + 1] = InBuffer[pixelPos + 1];
                 OutBuffer[pixelPos + 2] = InBuffer[pixelPos + 2];
+                continue;
             }
+
+            double sumB = 0, sumG = 0, sumR = 0;
+            int count = 0;
+
+            // Rozmycie Gaussa w określonym oknie
+            for (int dy = -blockSize / 2; dy <= blockSize / 2; dy++) {
+                for (int dx = -blockSize / 2; dx <= blockSize / 2; dx++) {
+                    int pos = ((y + dy) * width + (x + dx)) * BytesPerPixel;
+                    sumB += InBuffer[pos];
+                    sumG += InBuffer[pos + 1];
+                    sumR += InBuffer[pos + 2];
+                    count++;
+                }
+            }
+
+            // Zapis uśrednionych wartości
+            int pixelPos = (y * width + x) * BytesPerPixel;
+            OutBuffer[pixelPos] = static_cast<unsigned char>(sumB / count);
+            OutBuffer[pixelPos + 1] = static_cast<unsigned char>(sumG / count);
+            OutBuffer[pixelPos + 2] = static_cast<unsigned char>(sumR / count);
         }
     }
 }
