@@ -1,185 +1,191 @@
 .code
+GaussianBlurASM proc
+    ; RCX - InBuffer       WskaŸnik na bufor wejœciowy
+    ; RDX - OutBuffer      WskaŸnik na bufor wyjœciowy
+    ; R8D - height         Wysokoœæ obrazu
+    ; R9D - width          Szerokoœæ obrazu
+    ; [RSP+40] - start     Indeks startowy
+    ; [RSP+48] - end       Indeks koñcowy
+    ; [RSP+56] - blockSize Rozmiar okna rozmycia
 
-; Bufor z pikselami, prerabiana czeœæ, wysokoœæ, szerokoœæ, start, koniec
-ProcessImage proc pixelBuffer: QWORD, part: QWORD, higth: SDWORD, wid: SDWORD, start: SDWORD, endIndex: SDWORD
+    push rbp
+    mov rbp, rsp
+    push rbx
+    push rsi
+    push rdi
+    push r12
+    push r13
+    push r14
+    push r15
 
-	; Odtwórz rejestr
-	push rbx
-	push rcx
-	push rdx
-	push rbp
+    ; Zapisanie parametrów
+    mov rsi, rcx          ; InBuffer -> RSI
+    mov rdi, rdx          ; OutBuffer -> RDI
+    mov r12d, r8d         ; height -> R12D
+    mov r13d, r9d         ; width -> R13D
+    
+    ; Pobranie parametrów ze stosu
+    mov r14d, dword ptr [rbp+48]    ; start -> R14D
+    mov r15d, dword ptr [rbp+56]    ; end -> R15D
+    mov ebx, dword ptr [rbp+64]     ; blockSize -> EBX
 
-	; Pocz¹tek jest iteratorem w rejestrze rsi
-	mov eax, start
-	mov rsi, rax
+    ; Obliczenie startY
+    mov eax, r14d         ; start do EAX
+    mov ecx, r13d         ; width do ECX
+    imul ecx, 3           ; Pomno¿enie przez 3 (RGB)
+    cdq                   ; Przygotowanie do dzielenia
+    idiv ecx              ; Dzielenie: startY = start / (width * 3)
+    mov r8d, eax          ; Zapisanie startY
 
-	; Wysokoœæ w rejestrze r12 
-	mov r12, r8
+    ; Podobnie dla endY
+    mov eax, r15d        ; Obliczenie endY
+    cdq
+    idiv ecx
+    mov r9d, eax
 
-	; Width * hight * 3 w r12
-	imul r12, r9
-	imul r12, 3
+    ; G³ówna pêtla po Y
+outer_loop:              ; Pêtla po Y
+    cmp r8d, r9d         ; Sprawdzenie czy y < endY
+    jge done             ; Jeœli nie, koniec
 
-	; Width * 3 - 3 w r9
-	imul r9, 3
-	sub r9, 3
+    xor edx, edx         ; x = 0
 
-	; Width * 3 + 3 w rdi
-	mov rdi, r9
-	add rdi, 6
+inner_loop:              ; Pêtla po X
+    cmp edx, r13d        ; Sprawdzenie czy x < width
+    jge next_y           ; Jeœli nie, nastêpny wiersz
 
-	; Indeks dla bufora w rejestrze r14
-	xor r14, r14
-	mov eax, endIndex
-	sub eax, start
-	mov r14, rax
+    ; Obliczanie pozycji piksela
+    mov eax, r8d                    ; y
+    imul eax, r13d                  ; y * width
+    add eax, edx                    ; + x
+    imul eax, 3                     ; * 3 (RGB)
+    
+    ; Sprawdzenie czy jesteœmy na brzegu
+    mov r10d, ebx                   ; blockSize
+    shr r10d, 1                     ; blockSize / 2
+    
+ ; Seria porównañ sprawdzaj¹cych czy piksel jest na brzegu
+    cmp edx, r10d                   ; x < blockSize/2
+    jl copy_pixel
+    
+    mov r11d, r13d
+    sub r11d, r10d
+    cmp edx, r11d                   ; x >= width - blockSize/2
+    jge copy_pixel
+                                    ; podobnie dla Y:
+    cmp r8d, r10d                   ; y < blockSize/2
+    jl copy_pixel
+    
+    mov r11d, r12d
+    sub r11d, r10d
+    cmp r8d, r11d                   ; y >= height - blockSize/2
+    jge copy_pixel
 
-	; SprawdŸ czy jest to ostatni w¹tek
-	mov eax, endIndex
-	cmp rax, r12
-	je LastThread
-	add r14, rdi
-	LastThread:
-	sub r14, rdi
+    ; Inicjalizacja sum kolorów
+    pxor xmm0, xmm0                 ; sum R
+    pxor xmm1, xmm1                 ; sum G
+    pxor xmm2, xmm2                 ; sum B
+    xor r11d, r11d                  ; Licznik pikseli count = 0
 
-	; Indeks dla obliczanej czêœci w r13
-	xor r13, r13
+    ; Pêtla dla okna rozmycia
+    mov r14d, r10d                  ; half_block = blockSize/2
+    neg r14d                        ; -half_block
+                                    ; Pêtle po oknie rozmycia
+blur_y:                             ; pêtla po y w oknie
+    cmp r14d, r10d
+    jg blur_done
+    
+    mov r15d, r10d
+    neg r15d                        ; -half_block dla x
 
-	; Dzielnik
-	mov r15, 8
-	movd xmm10, r15
+blur_x:                             ; pêtla po x w oknie
+    cmp r15d, r10d
+    jg next_blur_y
 
-	; Dzielna
-	mov r15, 1
-	movd xmm9, r15
+    ; Oblicz pozycjê dla piksela w oknie
+    mov eax, r8d                    ; y
+    add eax, r14d                   ; y + dy
+    imul eax, r13d                  ; * width
+    add eax, edx                    ; + x
+    add eax, r15d                   ; + dx
+    imul eax, 3         ; * 3 (RGB)
 
-	; Konwersja na zmiennoprzecinkowe
-	vcvtdq2ps xmm10, xmm10
-	; Konwersja na zmiennoprzecionkowe
-	vcvtdq2ps xmm9, xmm9
+ ; Dodawanie wartoœci kolorów
+    movzx ecx, byte ptr [rsi + rax]     ; Pobranie sk³adowej Blue
+    cvtsi2ss xmm3, ecx                  ; Konwersja na float
+    addss xmm2, xmm3                    ; Dodanie do sumy
+                                        
+    movzx ecx, byte ptr [rsi + rax + 1] ; Pobranie sk³adowej Green
+    cvtsi2ss xmm3, ecx                  ; Konwersja na float
+    addss xmm1, xmm3                    ; Dodanie do sumy
+    
+    movzx ecx, byte ptr [rsi + rax + 2] ; Pobranie sk³adowej Red
+    cvtsi2ss xmm3, ecx                  ; Konwersja na float
+    addss xmm0, xmm3                    ; Dodanie do sumy
+    
+    inc r11d                            ; count++
+    
+    inc r15d
+    jmp blur_x
 
-	; Podzielic przez 8 oznacza pomnozyc przez 0.125
-	divss xmm9, xmm10
-	; Ustaw 0.125 na wszystkich miejscach
-	shufps xmm9, xmm9, 0
+next_blur_y:
+    inc r14d
+    mov r15d, r10d
+    neg r15d
+    jmp blur_y
 
-	; SprawdŸ czy jest to pierwszy w¹tek
-	mov rax, 0
-	cmp rax, rsi
-	jne NotFirstThread
-	add rsi, r9
-	NotFirstThread:
+blur_done:
+    ; Obliczenie œredniej
+    cvtsi2ss xmm3, r11d     ; Konwersja licznika na float
+    divss xmm0, xmm3        ; Dzielenie R/count
+    divss xmm1, xmm3        ; Dzielenie G/count
+    divss xmm2, xmm3        ; Dzielenie B/count
 
-	ForLoop:
-		
-		; SprawdŸ czy indeks nowej bitmapy jest mniejszy od konca
-		cmp r13, r14
-		jge ProgramOver
+    ; Oblicz pozycjê docelow¹
+    mov eax, r8d                   ; y
+    imul eax, r13d                 ; * width
+    add eax, edx                   ; + x
+    imul eax, 3        ; * 3 (RGB)
 
-		; Przesuñ wskaŸnik
-		mov rbx, rsi
-		sub rbx, r9
+    ; Zapisz wynik
+    cvttss2si ecx, xmm2
+    mov byte ptr [rdi + rax], cl     ; Blue
+    cvttss2si ecx, xmm1
+    mov byte ptr [rdi + rax + 1], cl ; Green
+    cvttss2si ecx, xmm0
+    mov byte ptr [rdi + rax + 2], cl ; Red
+    
+    jmp next_pixel
 
-		; 1 zestaw pikseli
-		; Indeks i - width * 3 - 3
-		pmovzxbd xmm0, [rcx + rbx - 6]
-		; Rozkaz pmovzxbd (SSE4_1):
-		; Przenosi 4 16-bitowe wartoœci z bufora do xmm 
+copy_pixel:
+    ; Skopiuj piksel bez zmian
+    mov cl, byte ptr [rsi + rax]        ; Kopiowanie B
+    mov byte ptr [rdi + rax], cl
 
-		; 2 zestaw pikseli
-		; Indeks i - width * 3
-		pmovzxbd xmm2, [rcx + rbx - 3]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2 
-		; Rozkaz paddd
-		; Dodawanie wartoœci dwóch wektorów
-		; Np: xmm0: 321 123 321 100
-		;	  xmm1: 111 111 111 111
-		;     --------------------- paddd xmm0, xmm1
-		;     xmm0: 432 234 432 211
+    mov cl, byte ptr [rsi + rax + 1]    ; Kopiowanie G
+    mov byte ptr [rdi + rax + 1], cl
 
-		; 3 zestaw pikseli
-		; Indeks i - width * 3 + 3
-		pmovzxbd xmm2, [rcx + rbx]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2 
-		; 4 zestaw pikseli
-		; Indeks i - 3
-		pmovzxbd xmm2, [rcx + rsi - 3]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2
-		; 5 zestaw pikseli
-		; Indeks i + 3
-		pmovzxbd xmm2, [rcx + rsi + 3]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2
-		; Przesuñ wskaŸnik
-		mov rbx, rsi
-		add rbx, r9
-		; 6 zestaw pikseli
-		; Indeks i + width * 3 - 3
-		pmovzxbd xmm2, [rcx + rbx - 3]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2
-		; 7 zestaw pikseli
-		; Indeks i + width * 3
-		pmovzxbd xmm2, [rcx + rbx]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2
-		; 8 zestaw pikseli
-		; Indeks i + width * 3 + 3
-		pmovzxbd xmm2, [rcx + rbx + 3]
-		; Sumuj wartoœci
-		paddd xmm0, xmm2 
-		
-		; Pomnó¿ wektor przez 0.125
-		mulps xmm0, xmm9
+    mov cl, byte ptr [rsi + rax + 2]    ; Kopiowanie R
+    mov byte ptr [rdi + rax + 2], cl
 
-		; Konwersja na zmiennoprzecinkowe
-		vcvtdq2ps xmm1, xmm0
-		; Zapisz wynik w rax
-		vcvtss2si eax, xmm1
-		
-		; Rozkaz vcvtss2si (AVX)
-		; Przemieœæ najmniej znacz¹cy element zmiennoprzecinowy z xmm0,
-		; konwertuj¹c go na 32bitowy integer (dlatego eax a nie rax)
-		; Zapisz obliczony piksel w nowej bitmapie
-		mov byte ptr [rdx + r13], al
-		; Inkrementuj indeks nowej bitmapy
-		inc r13
-		; Przesuñ
-		shufps xmm0, xmm0, 39h
-		; Rozkaz shufps (SSE)
-		; Rozkaz przesuwa dane w wektorze w zale¿noœci od flagi kontolnej
-		; 39h - przesuñ w prawo
-		; Konwersja na zmiennoprzecinkowe
-		vcvtdq2ps xmm1, xmm0
-		; Przeœlij do eax
-		vcvtss2si eax, xmm1
-		; Zapisz w nowej bitmapie
-		mov byte ptr [rdx + r13], al
-		; Inkrementuj indeks
-		inc r13
-		; Przesuñ
-		shufps xmm0, xmm0, 39h
-		; Konwersja na zmiennoprzecinkowe
-		vcvtdq2ps xmm1, xmm0
-		; Przeœlij do eax
-		vcvtss2si eax, xmm1
-		; Zapisz w nowej bitmapie
-		mov byte ptr [rdx + r13], al
-		; Inkrementuj indeks
-		inc r13
-		
-		add rsi, 3
-		jmp ForLoop
+next_pixel:
+    inc edx                         ; nastêpny x
+    jmp inner_loop
 
-ProgramOver:
-	pop rbp
-	pop rdx
-	pop rcx
-	pop rbx
+next_y:
+    inc r8d                         ; nastêpny y
+    jmp outer_loop
 
-	ret
-	ProcessImage endp
-    end
+done:
+    pop r15                         ; Przywrócenie zachowanych rejestrów
+    pop r14
+    pop r13
+    pop r12
+    pop rdi
+    pop rsi
+    pop rbx
+    pop rbp
+    ret                             ; Powrót z funkcji
+GaussianBlurASM endp
+
+end

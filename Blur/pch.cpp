@@ -30,7 +30,7 @@ void __stdcall GaussianBlur(
 {
     const int BytesPerPixel = 3;  // RGB
 
-    // Oblicz rzeczywiste granice przetwarzania
+    // Obliczanie rzeczywistych granic przetwarzania
     int startY = start / (width * BytesPerPixel);
     int endY = end / (width * BytesPerPixel);
 
@@ -40,7 +40,7 @@ void __stdcall GaussianBlur(
 
     for (int y = startY; y < endY; ++y) {
         for (int x = 0; x < width; ++x) {
-            // Jeśli piksel jest blisko krawędzi, kopiuj bez rozmycia
+            // Jeśli piksel jest blisko krawędzi, kopiujemy bez rozmycia
             if (x < blockSize / 2 || x >= width - blockSize / 2 ||
                 y < blockSize / 2 || y >= height - blockSize / 2) {
 

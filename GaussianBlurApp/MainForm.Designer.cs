@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Reflection;
 
-namespace JaProj
+namespace GaussianBlur
 {
     partial class MainForm
     {

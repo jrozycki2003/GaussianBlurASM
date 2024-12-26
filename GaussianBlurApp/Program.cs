@@ -2,7 +2,7 @@
 using System.Windows.Forms;
 
 
-namespace JaProj
+namespace GaussianBlur
 {
     static class Program
     {

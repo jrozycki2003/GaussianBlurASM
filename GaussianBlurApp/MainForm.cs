@@ -4,11 +4,9 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Threading;
 using System.Threading.Tasks;
 
-namespace JaProj
+namespace GaussianBlur
 {
     public partial class MainForm : Form
     {
@@ -26,6 +24,16 @@ namespace JaProj
             int end,
             int blockSize);
 
+        [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\JAAsm.dll",
+            CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Auto)]
+        private static extern void GaussianBlurASM(
+            IntPtr InBuffer,
+            IntPtr OutBuffer,
+            int height,
+            int width,
+            int start,
+            int end,
+            int blockSize);
         public MainForm()
         {
             InitializeComponent();
@@ -39,7 +47,7 @@ namespace JaProj
             threadCountTrackBar.Value = Environment.ProcessorCount;
 
             blurAmountTrackBar.Minimum = 1;
-            blurAmountTrackBar.Maximum = 20;
+            blurAmountTrackBar.Maximum = 25;
             blurAmountTrackBar.Value = 1;
 
             UpdateLabels();
@@ -55,14 +63,16 @@ namespace JaProj
         {
             using (OpenFileDialog FileText = new OpenFileDialog())
             {
-                FileText.Filter = "Image Files|*.jpg;*.jpeg;*.png";
+                FileText.Filter = "Image Files|.jpg;.jpeg;*.png";
                 FileText.Title = "Select an Image File";
 
                 if (FileText.ShowDialog() == DialogResult.OK)
                 {
                     try
                     {
+                        originalImage?.Dispose();
                         originalImage = Image.FromFile(FileText.FileName);
+                        originalImageBox.Image?.Dispose();
                         originalImageBox.Image = new Bitmap(originalImage);
                         applyBlurButton.Enabled = true;
                     }
@@ -96,7 +106,7 @@ namespace JaProj
 
             try
             {
-                ProcessImage();
+                ApplyGaussianBlur();
             }
             catch (Exception ex)
             {
@@ -110,121 +120,129 @@ namespace JaProj
             }
         }
 
-        private void ProcessImage()
+        private void ApplyGaussianBlur()
         {
-            // Bezpieczne pobranie wartości z głównego wątku interfejsu użytkownika
-            bool useAsmLibrary = false;
-            int threadCount = 1;
-            int blockSize = 1;
-
-            this.Invoke((MethodInvoker)delegate
+            if (originalImage == null)
             {
-                useAsmLibrary = librarySelector.SelectedItem?.ToString() == "ASM Library";
-                threadCount = threadCountTrackBar.Value;
-                blockSize = blurAmountTrackBar.Value;
-            });
+                MessageBox.Show("Please load image.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
-            Bitmap bitmap = new Bitmap(originalImage);
-            int width = bitmap.Width;
-            int height = bitmap.Height;
+            bool useAsmLibrary = librarySelector.SelectedItem?.ToString() == "ASM Library";
+            int threadCount = threadCountTrackBar.Value;
+            int blockSize = blurAmountTrackBar.Value;
 
-            Console.WriteLine($"Image dimensions: {width}x{height}, Block size: {blockSize}, Threads: {threadCount}");
-
-            BitmapData data = null;
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
             try
             {
-                Rectangle rect = new Rectangle(0, 0, width, height);
-                data = bitmap.LockBits(rect, ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
-
-                int stride = data.Stride;
-                int bytes = Math.Abs(stride) * height;
-
-                byte[] buffer = new byte[bytes];
-                byte[] resultBuffer = new byte[bytes];
-
-                Marshal.Copy(data.Scan0, buffer, 0, bytes);
-
-                IntPtr sourceBuffer = Marshal.AllocHGlobal(bytes);
-                IntPtr destinationBuffer = Marshal.AllocHGlobal(bytes);
-
-                try
+                using (Bitmap sourceBitmap = new Bitmap(originalImage))
                 {
-                    Marshal.Copy(buffer, 0, sourceBuffer, bytes);
-                    Marshal.Copy(buffer, 0, destinationBuffer, bytes);
+                    int width = sourceBitmap.Width;
+                    int height = sourceBitmap.Height;
 
-                    // Podział pracy na wątki
-                    Parallel.For(0, threadCount, threadIndex =>
+                    // Obsługa błędów
+                    if (width <= 0 || height <= 0)
                     {
-                        int rowsPerThread = height / threadCount;
-                        int startRow = threadIndex * rowsPerThread;
-                        int endRow = (threadIndex == threadCount - 1) ? height : (threadIndex + 1) * rowsPerThread;
+                        MessageBox.Show("Invalid image dimensions.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
 
-                        int startIndex = startRow * stride;
-                        int endIndex = endRow * stride;
+                    if (threadCount > width || threadCount > height)
+                    {
+                        MessageBox.Show("Thread count cannot exceed image dimensions.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+
+                    Debug.WriteLine($"Processing with: {(useAsmLibrary ? "ASM" : "C++")} Library");
+                    Debug.WriteLine($"Image dimensions: {width}x{height}, Block size: {blockSize}, Threads: {threadCount}");
+
+                    using (Bitmap blurredBitmap = new Bitmap(sourceBitmap))
+                    {
+                        BitmapData sourceData = null;
+                        BitmapData blurredData = null;
 
                         try
                         {
-                            if (useAsmLibrary)
+                            Rectangle rect = new Rectangle(0, 0, width, height);
+                            sourceData = sourceBitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+                            blurredData = blurredBitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+
+                            int stride = sourceData.Stride;
+                            int bytes = Math.Abs(stride) * height;
+
+                            byte[] sourceBuffer = new byte[bytes];
+                            byte[] resultBuffer = new byte[bytes];
+
+                            Marshal.Copy(sourceData.Scan0, sourceBuffer, 0, bytes);
+
+                            IntPtr sourcePtr = Marshal.AllocHGlobal(bytes);
+                            IntPtr resultPtr = Marshal.AllocHGlobal(bytes);
+
+                            try
                             {
-                                GaussianBlurASM.ApplyBlurThreaded(
-                                    sourceBuffer,
-                                    destinationBuffer,
-                                    width,
-                                    height,
-                                    startIndex,
-                                    endIndex,
-                                    blockSize  // Dodaj ten parametr
-                                );
+                                Marshal.Copy(sourceBuffer, 0, sourcePtr, bytes);
+                                Marshal.Copy(sourceBuffer, 0, resultPtr, bytes);
+
+                                int bytesPerThread = bytes / threadCount;
+                                int[] starts = new int[threadCount];
+                                int[] ends = new int[threadCount];
+
+                                for (int i = 0; i < threadCount; i++)
+                                {
+                                    starts[i] = i * bytesPerThread;
+                                    ends[i] = (i == threadCount - 1) ? bytes : (i + 1) * bytesPerThread;
+                                }
+
+                                Parallel.For(0, threadCount, i =>
+                                {
+                                    if (useAsmLibrary)
+                                    {
+                                        GaussianBlurASM(sourcePtr, resultPtr, height, width, starts[i], ends[i], blockSize);
+                                    }
+                                    else
+                                    {
+                                        GaussianBlur(sourcePtr, resultPtr, height, width, starts[i], ends[i], blockSize);
+                                    }
+                                });
+
+                                Marshal.Copy(resultPtr, resultBuffer, 0, bytes);
+                                Marshal.Copy(resultBuffer, 0, blurredData.Scan0, bytes);
                             }
-                            else
+                            finally
                             {
-                                GaussianBlur(
-                                    sourceBuffer,
-                                    destinationBuffer,
-                                    height,
-                                    width,
-                                    startIndex,
-                                    endIndex,
-                                    blockSize
-                                );
+                                Marshal.FreeHGlobal(sourcePtr);
+                                Marshal.FreeHGlobal(resultPtr);
                             }
                         }
-                        catch (Exception ex)
+                        finally
                         {
-                            Console.WriteLine($"Error in thread {threadIndex}: {ex.Message}");
+                            if (sourceData != null) sourceBitmap.UnlockBits(sourceData);
+                            if (blurredData != null) blurredBitmap.UnlockBits(blurredData);
                         }
-                    });
 
-                    Marshal.Copy(destinationBuffer, resultBuffer, 0, bytes);
-                    Marshal.Copy(resultBuffer, 0, data.Scan0, bytes);
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(sourceBuffer);
-                    Marshal.FreeHGlobal(destinationBuffer);
+                        stopwatch.Stop();
+
+                        this.Invoke((MethodInvoker)delegate
+                        {
+                            if (blurredImageBox.Image != null)
+                                blurredImageBox.Image.Dispose();
+                            blurredImageBox.Image = new Bitmap(blurredBitmap);
+
+                            MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds} ms\n" +
+                                             $"Library: {(useAsmLibrary ? "ASM" : "C++")}\n" +
+                                             $"Threads: {threadCount}\n" +
+                                             $"Blur Size: {blockSize}",
+                                "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        });
+                    }
                 }
             }
-            finally
+            catch (Exception ex)
             {
-                if (data != null)
-                    bitmap.UnlockBits(data);
+                MessageBox.Show($"Error processing image: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-
-            stopwatch.Stop();
-
-            // Użyj BeginInvoke, aby nie blokować wątku
-            this.BeginInvoke((MethodInvoker)delegate
-            {
-                if (blurredImageBox.Image != null)
-                    blurredImageBox.Image.Dispose();
-                blurredImageBox.Image = bitmap;
-
-                MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds}ms",
-                    "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            });
         }
 
         private void ThreadCountTrackBar_Scroll(object sender, EventArgs e)
@@ -241,32 +259,9 @@ namespace JaProj
         {
             base.OnFormClosing(e);
 
-            if (originalImage != null)
-                originalImage.Dispose();
-            if (originalImageBox.Image != null)
-                originalImageBox.Image.Dispose();
-            if (blurredImageBox.Image != null)
-                blurredImageBox.Image.Dispose();
+            originalImage?.Dispose();
+            originalImageBox.Image?.Dispose();
+            blurredImageBox.Image?.Dispose();
         }
-    }
-
-        public class GaussianBlurASM
-    {
-        [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\JAAsm.dll",
-                   CallingConvention = CallingConvention.Cdecl)]
-        public static extern void ApplyBlurThreaded(
-            IntPtr inputBuffer,
-            IntPtr outputBuffer,
-            int width,
-            int height,
-            int startIndex,
-            int endIndex,
-            int blockSize
-        );
-
-        // Stałe dla operacji SIMD
-        public const int BytesPerPixel = 3;      // Format RGB
-        public const int SIMDAlignment = 64;     // Wyrównanie dla operacji SIMD
-        public const int PixelsPerBlock = 8;     // Liczba pikseli przetwarzanych w jednym bloku SIMD
     }
 }
