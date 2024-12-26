@@ -90,6 +90,7 @@ inner_loop:              ; Pêtla po X
 
     ; Inicjalizacja zmiennych dla obliczania rozmycia
     ; Inicjalizacja sum kolorów
+    ; U¿ywanie instrukcji wektorowych pxor
     pxor xmm0, xmm0                 ; Wyzerowanie sum kolorów, sum R
     pxor xmm1, xmm1                 ; sum G
     pxor xmm2, xmm2                 ; sum B
@@ -122,6 +123,7 @@ blur_x:                             ; pêtla po x w oknie rozmycia tak samo
     imul eax, 3                     ; * 3 (RGB)
 
  ; Dodawanie wartoœci kolorów
+ ; Znowu u¿ywanie instrukcji wektorowych cvtsi2ss, addss
     movzx ecx, byte ptr [rsi + rax]     ; Pobranie sk³adowej Blue
     cvtsi2ss xmm3, ecx                  ; Konwersja na float
     addss xmm2, xmm3                    ; Dodanie do sumy
