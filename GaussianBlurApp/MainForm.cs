@@ -10,42 +10,49 @@ namespace GaussianBlur
 {
     public partial class MainForm : Form
     {
-        private Image originalImage;
+        
+        private Image originalImage;// Przechowuje oryginalny obraz przed przetworzeniem
+
 
         [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\Blur.dll",
-            CallingConvention = CallingConvention.StdCall,
-            CharSet = CharSet.Auto)]
+            CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Auto)]
         private static extern void GaussianBlur(
-            IntPtr InBuffer,
-            IntPtr OutBuffer,
-            int height,
-            int width,
-            int start,
-            int end,
-            int blockSize);
+            IntPtr InBuffer,          // Wskaźnik do bufora wejściowego
+            IntPtr OutBuffer,         // Wskaźnik do bufora wyjściowego
+            int height,               // Wysokość obrazu
+            int width,                // Szerokość obrazu
+            int start,                // Początkowy indeks dla wątku
+            int end,                  // Końcowy indeks dla wątku
+            int blockSize);           // Rozmiar okna rozmycia
+
 
         [DllImport(@"C:\Users\Gamer\source\repos\GaussianBlurASM\x64\Debug\JAAsm.dll",
             CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Auto)]
         private static extern void GaussianBlurASM(
-            IntPtr InBuffer,
-            IntPtr OutBuffer,
-            int height,
-            int width,
-            int start,
-            int end,
-            int blockSize);
+            IntPtr InBuffer,          // Wskaźnik do bufora wejściowego
+            IntPtr OutBuffer,         // Wskaźnik do bufora wyjściowego
+            int height,               // Wysokość obrazu
+            int width,                // Szerokość obrazu
+            int start,                // Początkowy indeks dla wątku
+            int end,                  // Końcowy indeks dla wątku
+            int blockSize);           // Rozmiar okna rozmycia
+
+
         public MainForm()
         {
             InitializeComponent();
 
+            // Dodanie opcji wyboru biblioteki
             librarySelector.Items.Add("C++ Library");
             librarySelector.Items.Add("ASM Library");
             librarySelector.SelectedIndex = 0;
 
+            // Konfiguracja suwaka liczby wątków
             threadCountTrackBar.Minimum = 1;
             threadCountTrackBar.Maximum = 64;
-            threadCountTrackBar.Value = Environment.ProcessorCount;
+            threadCountTrackBar.Value = Environment.ProcessorCount;  // Domyślnie liczba rdzeni CPU
 
+            // Konfiguracja suwaka intensywności rozmycia
             blurAmountTrackBar.Minimum = 1;
             blurAmountTrackBar.Maximum = 25;
             blurAmountTrackBar.Value = 1;
@@ -53,12 +60,14 @@ namespace GaussianBlur
             UpdateLabels();
         }
 
+        // Aktualizuje etykiety wyświetlające wartości suwaków
         private void UpdateLabels()
         {
             threadCountLabel.Text = $"Thread Count: {threadCountTrackBar.Value}";
             blurAmountLabel.Text = $"Blur Amount: {blurAmountTrackBar.Value}";
         }
 
+        // Obsługa przycisku wczytywania obrazu
         private void LoadImageButton_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog FileText = new OpenFileDialog())
@@ -70,6 +79,7 @@ namespace GaussianBlur
                 {
                     try
                     {
+                        // Zwolnienie zasobów poprzedniego obrazu
                         originalImage?.Dispose();
                         originalImage = Image.FromFile(FileText.FileName);
                         originalImageBox.Image?.Dispose();
@@ -85,8 +95,10 @@ namespace GaussianBlur
             }
         }
 
+        // Obsługa przycisku aplikowania rozmycia
         private void ApplyBlurButton_Click(object sender, EventArgs e)
         {
+            // Sprawdzenie czy obraz został wczytany
             if (originalImage == null)
             {
                 MessageBox.Show("Please load an image first.", "Error",
@@ -94,6 +106,7 @@ namespace GaussianBlur
                 return;
             }
 
+            // Sprawdzenie czy wybrano bibliotekę
             if (librarySelector.SelectedItem == null)
             {
                 MessageBox.Show("Please select a blur library.", "Error",
@@ -101,6 +114,7 @@ namespace GaussianBlur
                 return;
             }
 
+            // Zmiana kursora na oczekujący i dezaktywacja przycisku
             Cursor = Cursors.WaitCursor;
             applyBlurButton.Enabled = false;
 
@@ -115,48 +129,44 @@ namespace GaussianBlur
             }
             finally
             {
+                // Przywrócenie normalnego stanu interfejsu
                 Cursor = Cursors.Default;
                 applyBlurButton.Enabled = true;
             }
         }
 
+        // Główna metoda aplikująca rozmycie Gaussa
         private void ApplyGaussianBlur()
         {
-            if (originalImage == null)
-            {
-                MessageBox.Show("Please load image.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
+            // Pobranie parametrów przetwarzania
             bool useAsmLibrary = librarySelector.SelectedItem?.ToString() == "ASM Library";
             int threadCount = threadCountTrackBar.Value;
             int blockSize = blurAmountTrackBar.Value;
 
+            // Start pomiaru czasu
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
 
             try
             {
-                using (Bitmap sourceBitmap = new Bitmap(originalImage))
+                using (Bitmap sourceBitmap = new Bitmap(originalImage))//Tworzenie kopii obrazu
                 {
                     int width = sourceBitmap.Width;
                     int height = sourceBitmap.Height;
 
-                    // Obsługa błędów
+                    // sprawdzenie wymiarów obrazu
                     if (width <= 0 || height <= 0)
                     {
                         MessageBox.Show("Invalid image dimensions.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
 
+                    // sprawdzenie liczby wątków
                     if (threadCount > width || threadCount > height)
                     {
                         MessageBox.Show("Thread count cannot exceed image dimensions.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
-
-                    Debug.WriteLine($"Processing with: {(useAsmLibrary ? "ASM" : "C++")} Library");
-                    Debug.WriteLine($"Image dimensions: {width}x{height}, Block size: {blockSize}, Threads: {threadCount}");
 
                     using (Bitmap blurredBitmap = new Bitmap(sourceBitmap))
                     {
@@ -165,27 +175,38 @@ namespace GaussianBlur
 
                         try
                         {
+                            // danie bitmapy w pamięci
                             Rectangle rect = new Rectangle(0, 0, width, height);
-                            sourceData = sourceBitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
-                            blurredData = blurredBitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+                            sourceData = sourceBitmap.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);//LockBits blokuje obszar bitmapy w pamięci
+                            //tylko odczyt dla źródła
+                            blurredData = blurredBitmap.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);//Format24bppRgb - format 24-bitowy (3 bajty na piksel: RGB)
+                            //tylko zapis dla wyniku
 
-                            int stride = sourceData.Stride;
+                            //Obliczanie rozmiaru bufora
+                            int stride = sourceData.Stride;//Stride to liczba bajtów w jednym wierszu obrazu
+                            //Całkowity rozmiar w bajtach to stride × wysokość
                             int bytes = Math.Abs(stride) * height;
 
-                            byte[] sourceBuffer = new byte[bytes];
+                            // Utworzenie buforów dla danych obrazu
+                            byte[] sourceBuffer = new byte[bytes];//Tworzenie buforów na dane źródłowe i wynikowe
+                            //Kopiowanie danych z bitmapy do bufora źródłowego
                             byte[] resultBuffer = new byte[bytes];
 
+                            // Kopiowanie danych do bufora
                             Marshal.Copy(sourceData.Scan0, sourceBuffer, 0, bytes);
 
-                            IntPtr sourcePtr = Marshal.AllocHGlobal(bytes);
+                            // Alokacja pamięci niezarzadzanej dla cpp i asm
+                            IntPtr sourcePtr = Marshal.AllocHGlobal(bytes);//IntPtr to wskaźnik na pamięć niezarządzaną
                             IntPtr resultPtr = Marshal.AllocHGlobal(bytes);
 
                             try
                             {
+                                // Kopiowanie danych do pamięci niemanaged
                                 Marshal.Copy(sourceBuffer, 0, sourcePtr, bytes);
                                 Marshal.Copy(sourceBuffer, 0, resultPtr, bytes);
 
-                                int bytesPerThread = bytes / threadCount;
+                                // Obliczenie zakresów dla wątków
+                                int bytesPerThread = bytes / threadCount;//Przygotowanie do przetwarzania wielowątkowego
                                 int[] starts = new int[threadCount];
                                 int[] ends = new int[threadCount];
 
@@ -194,8 +215,11 @@ namespace GaussianBlur
                                     starts[i] = i * bytesPerThread;
                                     ends[i] = (i == threadCount - 1) ? bytes : (i + 1) * bytesPerThread;
                                 }
-
-                                Parallel.For(0, threadCount, i =>
+                                // Podział danych na równe części dla każdego wątku
+                                // Równoległe przetwarzanie obrazu
+                                Parallel.For(0, threadCount, i =>//Uruchomienie równoległego przetwarzania
+                                                                 //Każdy wątek przetwarza swoją część obrazu
+                                                                 //Wybór między biblioteką ASM a C++
                                 {
                                     if (useAsmLibrary)
                                     {
@@ -207,29 +231,34 @@ namespace GaussianBlur
                                     }
                                 });
 
-                                Marshal.Copy(resultPtr, resultBuffer, 0, bytes);
-                                Marshal.Copy(resultBuffer, 0, blurredData.Scan0, bytes);
+                                // Kopiowanie wyników z powrotem i zwalnianie zasobów
+                                Marshal.Copy(resultPtr, resultBuffer, 0, bytes);//Kopiowanie wyniku z pamięci niezarządzanej do bufora
+                                Marshal.Copy(resultBuffer, 0, blurredData.Scan0, bytes);//Kopiowanie z bufora do bitmapy wynikowej
                             }
                             finally
                             {
+                                // Zwolnienie pamięci
                                 Marshal.FreeHGlobal(sourcePtr);
                                 Marshal.FreeHGlobal(resultPtr);
                             }
                         }
                         finally
                         {
+                            // Odblokowanie bitmapki
                             if (sourceData != null) sourceBitmap.UnlockBits(sourceData);
                             if (blurredData != null) blurredBitmap.UnlockBits(blurredData);
                         }
 
                         stopwatch.Stop();
 
+                        // wyswietlenie wyniku
                         this.Invoke((MethodInvoker)delegate
                         {
                             if (blurredImageBox.Image != null)
                                 blurredImageBox.Image.Dispose();
                             blurredImageBox.Image = new Bitmap(blurredBitmap);
 
+                            // Wyświetlenie wyników przetwarzania
                             MessageBox.Show($"Processing completed in {stopwatch.ElapsedMilliseconds} ms\n" +
                                              $"Library: {(useAsmLibrary ? "ASM" : "C++")}\n" +
                                              $"Threads: {threadCount}\n" +
@@ -245,16 +274,19 @@ namespace GaussianBlur
             }
         }
 
+        // Obsługa zmiany wartości suwaka liczby wątków
         private void ThreadCountTrackBar_Scroll(object sender, EventArgs e)
         {
             UpdateLabels();
         }
 
+        // Obsługa zmiany wartości suwaka intensywności rozmycia
         private void BlurAmountTrackBar_Scroll(object sender, EventArgs e)
         {
             UpdateLabels();
         }
 
+        // posprzątanie zasobów przy zamykaniu programu
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             base.OnFormClosing(e);

@@ -23,9 +23,8 @@ namespace GaussianBlur
             ((System.ComponentModel.ISupportInitialize)(this.originalImageBox)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.blurredImageBox)).BeginInit();
             this.SuspendLayout();
-            // 
+
             // loadImageButton
-            // 
             this.loadImageButton.Location = new System.Drawing.Point(20, 20);
             this.loadImageButton.Name = "loadImageButton";
             this.loadImageButton.Size = new System.Drawing.Size(100, 30);
@@ -33,9 +32,8 @@ namespace GaussianBlur
             this.loadImageButton.Text = "Load Image";
             this.loadImageButton.UseVisualStyleBackColor = true;
             this.loadImageButton.Click += new System.EventHandler(this.LoadImageButton_Click);
-            // 
+
             // applyBlurButton
-            // 
             this.applyBlurButton.Location = new System.Drawing.Point(140, 20);
             this.applyBlurButton.Name = "applyBlurButton";
             this.applyBlurButton.Size = new System.Drawing.Size(100, 30);
@@ -43,9 +41,8 @@ namespace GaussianBlur
             this.applyBlurButton.Text = "Apply Blur";
             this.applyBlurButton.UseVisualStyleBackColor = true;
             this.applyBlurButton.Click += new System.EventHandler(this.ApplyBlurButton_Click);
-            // 
+
             // threadCountTrackBar
-            // 
             this.threadCountTrackBar.Location = new System.Drawing.Point(20, 78);
             this.threadCountTrackBar.Maximum = 64;
             this.threadCountTrackBar.Minimum = 1;
@@ -54,9 +51,8 @@ namespace GaussianBlur
             this.threadCountTrackBar.TabIndex = 2;
             this.threadCountTrackBar.Value = 16;
             this.threadCountTrackBar.Scroll += new System.EventHandler(this.ThreadCountTrackBar_Scroll);
-            // 
+ 
             // blurAmountTrackBar
-            // 
             this.blurAmountTrackBar.Location = new System.Drawing.Point(20, 137);
             this.blurAmountTrackBar.Minimum = 1;
             this.blurAmountTrackBar.Name = "blurAmountTrackBar";
@@ -64,43 +60,38 @@ namespace GaussianBlur
             this.blurAmountTrackBar.TabIndex = 4;
             this.blurAmountTrackBar.Value = 1;
             this.blurAmountTrackBar.Scroll += new System.EventHandler(this.BlurAmountTrackBar_Scroll);
-            // 
+
             // threadCountLabel
-            // 
             this.threadCountLabel.AutoSize = true;
             this.threadCountLabel.Location = new System.Drawing.Point(20, 60);
             this.threadCountLabel.Name = "threadCountLabel";
             this.threadCountLabel.Size = new System.Drawing.Size(0, 13);
             this.threadCountLabel.TabIndex = 3;
             this.threadCountLabel.Text = $"Thread Count: {this.threadCountTrackBar.Value}";
-            // 
+
             // blurAmountLabel
-            // 
             this.blurAmountLabel.AutoSize = true;
             this.blurAmountLabel.Location = new System.Drawing.Point(20, 121);
             this.blurAmountLabel.Name = "blurAmountLabel";
             this.blurAmountLabel.Size = new System.Drawing.Size(0, 13);
             this.blurAmountLabel.TabIndex = 5;
             this.blurAmountLabel.Text = $"Blur Amount: {this.blurAmountTrackBar.Value}";
-            // 
+
             // librarySelectorLabel
-            // 
             this.librarySelectorLabel.AutoSize = true;
             this.librarySelectorLabel.Location = new System.Drawing.Point(20, 274);
             this.librarySelectorLabel.Name = "librarySelectorLabel";
             this.librarySelectorLabel.Size = new System.Drawing.Size(95, 13);
             this.librarySelectorLabel.TabIndex = 6;
             this.librarySelectorLabel.Text = "Select Blur Library:";
-            // 
+
             // librarySelector
-            // 
             this.librarySelector.Location = new System.Drawing.Point(23, 299);
             this.librarySelector.Name = "librarySelector";
             this.librarySelector.Size = new System.Drawing.Size(200, 21);
             this.librarySelector.TabIndex = 7;
-            // 
+
             // originalImageBox
-            // 
             this.originalImageBox.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
             this.originalImageBox.Location = new System.Drawing.Point(250, 20);
             this.originalImageBox.Name = "originalImageBox";
@@ -108,9 +99,8 @@ namespace GaussianBlur
             this.originalImageBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.originalImageBox.TabIndex = 8;
             this.originalImageBox.TabStop = false;
-            // 
+
             // blurredImageBox
-            // 
             this.blurredImageBox.BorderStyle = System.Windows.Forms.BorderStyle.Fixed3D;
             this.blurredImageBox.Location = new System.Drawing.Point(570, 20);
             this.blurredImageBox.Name = "blurredImageBox";
@@ -118,9 +108,8 @@ namespace GaussianBlur
             this.blurredImageBox.SizeMode = System.Windows.Forms.PictureBoxSizeMode.Zoom;
             this.blurredImageBox.TabIndex = 9;
             this.blurredImageBox.TabStop = false;
-            // 
+
             // MainForm
-            // 
             this.ClientSize = new System.Drawing.Size(900, 350);
             this.Controls.Add(this.loadImageButton);
             this.Controls.Add(this.applyBlurButton);
