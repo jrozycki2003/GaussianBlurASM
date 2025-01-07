@@ -9,7 +9,7 @@
 #endif
 
 extern "C" {
-    // Funkcja eksportowana z biblioteki DLL używająca konwencji wywołań __stdcall
+    // Funkcja eksportowana z biblioteki DLL używająca __stdcall
     Blur_API void __stdcall GaussianBlur(
         unsigned char* InBuffer,    // Wskaźnik na bufor wejściowy z pikselami obrazu
         unsigned char* OutBuffer,   // Wskaźnik na bufor wyjściowy na przetworzony obraz

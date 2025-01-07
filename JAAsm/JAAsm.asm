@@ -67,6 +67,7 @@ inner_loop:              ; Pêtla po X
     ; Sprawdzenie czy jesteœmy na brzegu
     mov r10d, ebx                   ; blockSize
     shr r10d, 1                     ; blockSize / 2
+    ;shr przesuwa bit w prawo, o 1 miejsce i tak dziele na 2 wydajniej
     
  ; sprawdzanie czy piksel jest na brzegu
     cmp edx, r10d                   ; x < blockSize/2
