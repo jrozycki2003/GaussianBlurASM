@@ -46,6 +46,9 @@ GaussianBlurASM proc
     idiv ecx
     mov r9d, eax               ; R9D = endY (wiersz koñcowy)
 
+     ; Przygotowanie rejestrów XMM dla wektorowego przetwarzania
+    pxor xmm7, xmm7           ; Zerowy wektor do rozszerzania bajtów na float
+
     ; G³ówna pêtla przetwarzania obrazu - iteracja po wierszach Y
     ; G³ówna pêtla po Y
 outer_loop:              ; Pêtla po Y
@@ -93,8 +96,7 @@ inner_loop:              ; Pêtla po X
     ; Inicjalizacja sum kolorów
     ; U¿ywanie instrukcji wektorowych pxor
     pxor xmm0, xmm0                 ; Wyzerowanie sum kolorów, sum R
-    pxor xmm1, xmm1                 ; sum G
-    pxor xmm2, xmm2                 ; sum B
+
     xor r11d, r11d                  ; Licznik pikseli count = 0
 
     ; Pêtla dla okna rozmycia
@@ -125,17 +127,13 @@ blur_x:                             ; pêtla po x w oknie rozmycia tak samo
 
  ; Dodawanie wartoœci kolorów
  ; Znowu u¿ywanie instrukcji wektorowych cvtsi2ss, addss
-    movzx ecx, byte ptr [rsi + rax]     ; Pobranie sk³adowej Blue
-    cvtsi2ss xmm3, ecx                  ; Konwersja na float
-    addss xmm2, xmm3                    ; Dodanie do sumy
-                                        
-    movzx ecx, byte ptr [rsi + rax + 1] ; Pobranie sk³adowej Green
-    cvtsi2ss xmm3, ecx                  ; Konwersja na float
-    addss xmm1, xmm3                    ; Dodanie do sumy
-    
-    movzx ecx, byte ptr [rsi + rax + 2] ; Pobranie sk³adowej Red
-    cvtsi2ss xmm3, ecx                  ; Konwersja na float
-    addss xmm0, xmm3                    ; Dodanie do sumy
+   ; Wektorowe wczytanie RGB (3 bajty)
+    movd xmm1, dword ptr [rsi + rax]    ; Wczytaj 4 bajty (RGB + 1)
+    pxor xmm2, xmm2                     ; Wyzeruj rejestr
+    punpcklbw xmm1, xmm7                ; Rozszerz bajty do s³ów
+    punpcklwd xmm1, xmm7                ; Rozszerz s³owa do dwordów
+    cvtdq2ps xmm1, xmm1                 ; Konwersja na float
+    addps xmm0, xmm1  
     
     inc r11d                            ; inkrementacja licznika pikseli, count++
     
@@ -150,12 +148,11 @@ next_blur_y:
 
     ; Obliczanie œrednich wartoœci kolorów
 blur_end:
-    ; Obliczenie œredniej
+    ; Obliczenie œredniej wektorowo
     cvtsi2ss xmm3, r11d     ; Konwersja licznika na float
-    ; œrednie R G i B
-    divss xmm0, xmm3        ; Dzielenie R/count
-    divss xmm1, xmm3        ; Dzielenie G/count
-    divss xmm2, xmm3        ; Dzielenie B/count
+    shufps xmm3, xmm3, 0    ; Skopiuj wartoœæ do wszystkich elementów
+    divps xmm0, xmm3        ; Podzielenie wektora sum przez count
+
 
     ; Obliczanie pozycji docelowej w buforze wyjœciowym
     mov eax, r8d                   ; y
@@ -163,13 +160,18 @@ blur_end:
     add eax, edx                   ; + x
     imul eax, 3                    ; * 3 (RGB)
 
-    ; Zapisywanie wyników wartoœci kolorów
-    cvttss2si ecx, xmm2
-    mov byte ptr [rdi + rax], cl     ; Blue
-    cvttss2si ecx, xmm1
-    mov byte ptr [rdi + rax + 1], cl ; Green
-    cvttss2si ecx, xmm0
-    mov byte ptr [rdi + rax + 2], cl ; Red
+    ; Konwersja float na bajty i zapis
+    cvtps2dq xmm0, xmm0               ; Konwersja float na int
+    packssdw xmm0, xmm0               ; Spakuj do s³ów
+    packuswb xmm0, xmm0               ; Spakuj do bajtów
+    movd ecx, xmm0                    ; Przenieœ wynik do rejestru ogólnego
+    
+    ; Zapisz RGB
+    mov byte ptr [rdi + rax], cl      ; Blue
+    shr ecx, 8
+    mov byte ptr [rdi + rax + 1], cl  ; Green
+    shr ecx, 8
+    mov byte ptr [rdi + rax + 2], cl  ; Red
     
     jmp next_pixel
 
