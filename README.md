@@ -1,21 +1,19 @@
-# GaussianBlurASM
+# **GaussianBlurASM**  
 
-GaussianBlurProject to projekt implementujący efekt rozmycia Gaussa za pomocą dwóch bibliotek: w języku asemblera oraz C++.
+GaussianBlurProject is a project that implements the Gaussian blur effect using two libraries: one in assembly language and another in C++.  
 
+![image](https://github.com/user-attachments/assets/2831c57f-b864-4c98-a658-523ec9a7f97a)  
+![image](https://github.com/user-attachments/assets/7e00da2c-f1f3-4aae-b76e-29420bd9ded4)  
 
-![image](https://github.com/user-attachments/assets/2831c57f-b864-4c98-a658-523ec9a7f97a)
-![image](https://github.com/user-attachments/assets/7e00da2c-f1f3-4aae-b76e-29420bd9ded4)
+## **Description**  
 
+The project aims to create an efficient Gaussian blur algorithm that can be used in applications requiring real-time image processing.  
 
-## Opis
+## **Features**  
 
-Projekt ma na celu stworzenie efektywnego algorytmu rozmycia Gaussa, który może być używany w aplikacjach wymagających przetwarzania obrazów w czasie rzeczywistym.
+- **Performance**: Optimization of the algorithm for speed, with a focus on ARM architecture.  
+- **Ease of Integration**: A simple interface that allows easy incorporation into other projects.  
 
-## Funkcje
+## **Contact**  
 
-- **Wydajność**: Optymalizacja algorytmu pod kątem szybkości działania na architekturze ARM.
-- **Łatwość integracji**: Prosty interfejs umożliwiający łatwe włączenie do innych projektów.
-
-## Kontakt
-
-W razie pytań lub sugestii zapraszam do kontaktu ze mną.
+If you have any questions or suggestions, feel free to contact me.
